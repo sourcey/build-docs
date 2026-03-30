@@ -1,0 +1,60 @@
+name: "Build Docs with Sourcey"
+description: "Build static documentation from OpenAPI specs and markdown using Sourcey"
+branding:
+  icon: "book-open"
+  color: "blue"
+
+inputs:
+  version:
+    description: "Sourcey version to install"
+    required: false
+    default: "latest"
+  config:
+    description: "Path to sourcey.config.ts (default: auto-detect)"
+    required: false
+  spec:
+    description: "Path to OpenAPI spec file (for standalone builds without config)"
+    required: false
+  output:
+    description: "Output directory"
+    required: false
+    default: "docs"
+  args:
+    description: "Additional arguments to pass to sourcey build"
+    required: false
+
+outputs:
+  output-dir:
+    description: "Path to the generated documentation"
+    value: ${{ steps.build.outputs.output-dir }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: "20"
+
+    - name: Install Sourcey
+      shell: bash
+      run: npm install -g sourcey@${{ inputs.version }}
+
+    - name: Build docs
+      id: build
+      shell: bash
+      run: |
+        ARGS=""
+        if [ -n "${{ inputs.config }}" ]; then
+          ARGS="--config ${{ inputs.config }}"
+        elif [ -n "${{ inputs.spec }}" ]; then
+          ARGS="${{ inputs.spec }}"
+        fi
+        if [ -n "${{ inputs.output }}" ]; then
+          ARGS="$ARGS --output ${{ inputs.output }}"
+        fi
+        if [ -n "${{ inputs.args }}" ]; then
+          ARGS="$ARGS ${{ inputs.args }}"
+        fi
+        sourcey build $ARGS
+        echo "output-dir=${{ inputs.output }}" >> "$GITHUB_OUTPUT"
