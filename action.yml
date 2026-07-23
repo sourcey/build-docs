@@ -38,23 +38,31 @@ runs:
 
     - name: Install Sourcey
       shell: bash
-      run: npm install -g sourcey@${{ inputs.version }}
+      env:
+        SOURCEY_VERSION: ${{ inputs.version }}
+      run: npm install --no-save --package-lock=false "sourcey@$SOURCEY_VERSION"
 
     - name: Build docs
       id: build
       shell: bash
+      env:
+        INPUT_ARGS: ${{ inputs.args }}
+        INPUT_CONFIG: ${{ inputs.config }}
+        INPUT_OUTPUT: ${{ inputs.output }}
+        INPUT_SPEC: ${{ inputs.spec }}
       run: |
-        ARGS=""
-        if [ -n "${{ inputs.config }}" ]; then
-          ARGS="--config ${{ inputs.config }}"
-        elif [ -n "${{ inputs.spec }}" ]; then
-          ARGS="${{ inputs.spec }}"
+        ARGS=()
+        if [ -n "$INPUT_CONFIG" ]; then
+          ARGS+=(--config "$INPUT_CONFIG")
+        elif [ -n "$INPUT_SPEC" ]; then
+          ARGS+=("$INPUT_SPEC")
         fi
-        if [ -n "${{ inputs.output }}" ]; then
-          ARGS="$ARGS --output ${{ inputs.output }}"
+        if [ -n "$INPUT_OUTPUT" ]; then
+          ARGS+=(--output "$INPUT_OUTPUT")
         fi
-        if [ -n "${{ inputs.args }}" ]; then
-          ARGS="$ARGS ${{ inputs.args }}"
+        if [ -n "$INPUT_ARGS" ]; then
+          read -r -a EXTRA_ARGS <<< "$INPUT_ARGS"
+          ARGS+=("${EXTRA_ARGS[@]}")
         fi
-        sourcey build $ARGS
-        echo "output-dir=${{ inputs.output }}" >> "$GITHUB_OUTPUT"
+        "$GITHUB_WORKSPACE/node_modules/.bin/sourcey" build "${ARGS[@]}"
+        echo "output-dir=$INPUT_OUTPUT" >> "$GITHUB_OUTPUT"

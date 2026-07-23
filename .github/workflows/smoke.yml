@@ -1,0 +1,33 @@
+name: Smoke test
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  config-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Build fixture through the local action
+        id: sourcey
+        uses: ./
+        with:
+          version: "3.6.5"
+          config: test/fixture/sourcey.config.ts
+          output: test/fixture/generated docs
+
+      - name: Verify output
+        env:
+          OUTPUT_DIR: ${{ steps.sourcey.outputs.output-dir }}
+        run: |
+          test "$OUTPUT_DIR" = "test/fixture/generated docs"
+          test -f "$OUTPUT_DIR/index.html"
+          test -f "$OUTPUT_DIR/search-index.json"
