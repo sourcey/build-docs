@@ -1,0 +1,8 @@
+{
+  "name": "build-docs-test-project",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "sourcey": "^3.9.2"
+  }
+}

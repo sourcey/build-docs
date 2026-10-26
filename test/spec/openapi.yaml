@@ -1,0 +1,21 @@
+openapi: 3.1.0
+info:
+  title: Build Docs Test API
+  version: 1.0.0
+  description: A small API the action's tests build a reference from.
+paths:
+  /pets:
+    get:
+      operationId: listPets
+      summary: List pets
+      responses:
+        "200":
+          description: The pets.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name: { type: string }

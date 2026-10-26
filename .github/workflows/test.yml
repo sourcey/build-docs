@@ -1,0 +1,40 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.case.name }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        case:
+          - { name: A spec, spec: test/spec/openapi.yaml, page: api.html }
+          - { name: A project that depends on Sourcey, config: test/project/sourcey.config.ts, page: index.html }
+          - { name: A config on its own, config: test/bare, page: index.html }
+    steps:
+      - uses: actions/checkout@v7
+      - id: docs
+        uses: ./
+        with:
+          spec: ${{ matrix.case.spec }}
+          config: ${{ matrix.case.config }}
+          output: site
+      - name: Check the site
+        shell: bash
+        env:
+          OUTPUT: ${{ steps.docs.outputs.output-dir }}
+          PAGE: ${{ matrix.case.page }}
+        run: |
+          set -euo pipefail
+          test "$OUTPUT" = site
+          for file in "$PAGE" llms.txt documents.json; do test -s "$OUTPUT/$file"; done
+          echo "Built $(ls "$OUTPUT" | wc -l | tr -d ' ') entries in $OUTPUT"

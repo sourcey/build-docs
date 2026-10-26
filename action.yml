@@ -1,19 +1,19 @@
 name: "Build Docs with Sourcey"
-description: "Build static documentation from OpenAPI specs and markdown using Sourcey"
+description: "Build static documentation from OpenAPI specs, MCP snapshots, code and Markdown using Sourcey"
 branding:
   icon: "book-open"
   color: "blue"
 
 inputs:
   version:
-    description: "Sourcey version to install"
+    description: "Sourcey version to use when the project does not depend on Sourcey itself; a project that does builds with its own"
     required: false
     default: "latest"
   config:
-    description: "Path to sourcey.config.ts (default: auto-detect)"
+    description: "Path to sourcey.config.ts, or the folder holding it (default: sourcey.config.ts in the working directory)"
     required: false
   spec:
-    description: "Path to OpenAPI spec file (for standalone builds without config)"
+    description: "Path or URL of an OpenAPI spec, to build its reference without a config"
     required: false
   output:
     description: "Output directory"
@@ -22,6 +22,14 @@ inputs:
   args:
     description: "Additional arguments to pass to sourcey build"
     required: false
+  node-version:
+    description: "Node.js version to build with (Sourcey needs 22.22.2 or later, 24.15 or later, or 26)"
+    required: false
+    default: "24"
+  token:
+    description: "Token a GitHub navbar link with stats reads its release, stars and forks with"
+    required: false
+    default: ${{ github.token }}
 
 outputs:
   output-dir:
@@ -31,30 +39,71 @@ outputs:
 runs:
   using: "composite"
   steps:
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
+    - name: Set up Node.js
+      uses: actions/setup-node@v6
       with:
-        node-version: "20"
+        node-version: ${{ inputs.node-version }}
 
+    # A project that depends on Sourcey builds with its own, at the version its lockfile holds. Any
+    # other gets the requested version, installed beside the workspace and linked into the config's
+    # folder, where its `import "sourcey"` looks for it; nothing of the project's is changed.
     - name: Install Sourcey
+      id: install
       shell: bash
-      run: npm install -g sourcey@${{ inputs.version }}
+      env:
+        INPUT_CONFIG: ${{ inputs.config }}
+        INPUT_SPEC: ${{ inputs.spec }}
+        INPUT_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        project=.
+        if [ -n "$INPUT_CONFIG" ]; then
+          if [ -d "$INPUT_CONFIG" ]; then project="$INPUT_CONFIG"; else project="$(dirname "$INPUT_CONFIG")"; fi
+        fi
+        project="$(cd "$project" && pwd)"
+        depends() {
+          [ -f "$project/package.json" ] && node -e '
+            const pkg = require(process.argv[1]);
+            process.exit(pkg.dependencies?.sourcey || pkg.devDependencies?.sourcey ? 0 : 1);
+          ' "$project/package.json"
+        }
+        if depends; then
+          cd "$project"
+          if [ -f pnpm-lock.yaml ]; then corepack enable && pnpm install --frozen-lockfile
+          elif [ -f yarn.lock ]; then corepack enable && yarn install --frozen-lockfile
+          elif [ -f package-lock.json ]; then npm ci
+          else npm install
+          fi
+          bin="$project/node_modules/.bin/sourcey"
+        else
+          tool="$RUNNER_TEMP/sourcey-build-docs"
+          npm install --prefix "$tool" --no-audit --no-fund "sourcey@$INPUT_VERSION"
+          if [ -z "$INPUT_SPEC" ]; then
+            mkdir -p "$project/node_modules"
+            ln -sfn "$tool/node_modules/sourcey" "$project/node_modules/sourcey"
+          fi
+          bin="$tool/node_modules/.bin/sourcey"
+        fi
+        echo "Building with Sourcey $("$bin" --version)"
+        echo "bin=$bin" >> "$GITHUB_OUTPUT"
 
     - name: Build docs
       id: build
       shell: bash
+      env:
+        SOURCEY: ${{ steps.install.outputs.bin }}
+        INPUT_CONFIG: ${{ inputs.config }}
+        INPUT_SPEC: ${{ inputs.spec }}
+        INPUT_OUTPUT: ${{ inputs.output }}
+        INPUT_ARGS: ${{ inputs.args }}
+        GITHUB_TOKEN: ${{ inputs.token }}
       run: |
-        ARGS=""
-        if [ -n "${{ inputs.config }}" ]; then
-          ARGS="--config ${{ inputs.config }}"
-        elif [ -n "${{ inputs.spec }}" ]; then
-          ARGS="${{ inputs.spec }}"
+        set -euo pipefail
+        args=()
+        if [ -n "$INPUT_SPEC" ]; then args+=("$INPUT_SPEC")
+        elif [ -n "$INPUT_CONFIG" ]; then args+=(--config "$INPUT_CONFIG")
         fi
-        if [ -n "${{ inputs.output }}" ]; then
-          ARGS="$ARGS --output ${{ inputs.output }}"
-        fi
-        if [ -n "${{ inputs.args }}" ]; then
-          ARGS="$ARGS ${{ inputs.args }}"
-        fi
-        sourcey build $ARGS
-        echo "output-dir=${{ inputs.output }}" >> "$GITHUB_OUTPUT"
+        if [ -n "$INPUT_OUTPUT" ]; then args+=(--output "$INPUT_OUTPUT"); fi
+        if [ -n "$INPUT_ARGS" ]; then read -ra extra <<< "$INPUT_ARGS"; args+=("${extra[@]}"); fi
+        "$SOURCEY" build ${args[@]+"${args[@]}"}
+        echo "output-dir=${INPUT_OUTPUT:-dist}" >> "$GITHUB_OUTPUT"
